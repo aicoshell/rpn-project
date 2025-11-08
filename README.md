@@ -52,3 +52,42 @@ Set `VITE_API_BASE` env var if backend is not `http://localhost:8001`.
 cd backend
 pytest -q
 ```
+
+## Deploy on Vercel (Backend + Redis)
+
+Backend is a FastAPI serverless function. For persistence across cold starts, use Redis (e.g., Upstash).
+
+- Create a Vercel Project for the backend with Root Directory = repo root (where `api/` lives).
+- Set env variable in Vercel Project → Settings → Environment Variables:
+  - `REDIS_URL=rediss://default:YOUR_PASSWORD@YOUR_HOST:YOUR_PORT`
+    - TLS is recommended (`rediss://`).
+- The app will automatically use Redis if `REDIS_URL` (or `UPSTASH_REDIS_URL`) is set; otherwise it falls back to in-memory.
+
+Endpoints in production (serverless):
+- `GET /api/rpn/op`
+- `POST /api/rpn/stack` → `{ stack_id }`
+- `GET /api/rpn/stack/{stack_id}`
+- `POST /api/rpn/stack/{stack_id}?value=10`
+- `POST /api/rpn/op/{op}/stack/{stack_id}` where op ∈ `+ - * div`
+- Swagger: `/api/docs`, OpenAPI JSON: `/api/swagger.json`
+
+#### Diagnostics
+
+- `GET /api/rpn/_storage` → `{ backend: "redis" | "memory" }`
+- `POST /api/rpn/_write_test` → force une écriture Redis de test et retourne `stack_id`
+- `GET /api/rpn/_read_test/{stack_id}` → lit la valeur écrite
+- `GET /api/rpn/_diag` → vérifie la présence de `REDIS_URL` et le ping Redis (utile en local)
+
+### Frontend (Vite) on Vercel
+
+- Create a second Vercel Project with Root Directory = `frontend`.
+- Set env var (Project → Settings → Environment Variables):
+  - `VITE_API_BASE=https://<your-backend>.vercel.app/api`
+- Build & Output:
+  - Build Command: `npm run build`
+  - Output Directory: `dist`
+
+### Local env examples
+
+- Backend: copy `backend/.env.example` to `backend/.env` and set `REDIS_URL` if you want to use Redis locally.
+- Frontend: set `frontend/.env.local` with `VITE_API_BASE` (defaults to `http://localhost:8001`).

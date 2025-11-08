@@ -17,6 +17,7 @@ export default function App() {
   const [stackId, setStackId] = useState<string | null>(null)
   const [operands, setOperands] = useState<string[]>(['+', '-', '*', 'div'])
   const [allStacks, setAllStacks] = useState<Record<string, number[]>>({})
+  const [sessionId, setSessionId] = useState<string>('')
 
   const orderedIds = useMemo(() => Object.keys(allStacks), [allStacks])
   const labelFor = (id: string) => {
@@ -30,7 +31,7 @@ export default function App() {
       setStackId(cached)
       return cached
     }
-    const r = await fetch(`${API_BASE}/rpn/stack`, { method: 'POST' })
+    const r = await fetch(`${API_BASE}/rpn/stack`, { method: 'POST', headers: { 'x-rpn-session': sessionId } })
     if (!r.ok) throw new Error('Impossible de créer la pile')
     const data = await r.json()
     localStorage.setItem('rpn_stack_id', data.stack_id)
@@ -40,13 +41,13 @@ export default function App() {
 
   const fetchStack = async (explicitId?: string) => {
     const id = explicitId ?? stackId ?? (await ensureStack())
-    const r = await fetch(`${API_BASE}/rpn/stack/${id}`)
+    const r = await fetch(`${API_BASE}/rpn/stack/${id}`, { headers: { 'x-rpn-session': sessionId } })
     const data = await r.json()
     setStack(data.stack ?? [])
   }
 
   const fetchOperands = async () => {
-    const r = await fetch(`${API_BASE}/rpn/op`)
+    const r = await fetch(`${API_BASE}/rpn/op`, { headers: { 'x-rpn-session': sessionId } })
     if (r.ok) {
       const data = await r.json()
       if (Array.isArray(data.operands)) setOperands(data.operands)
@@ -54,7 +55,7 @@ export default function App() {
   }
 
   const fetchAllStacks = async () => {
-    const r = await fetch(`${API_BASE}/rpn/stack`)
+    const r = await fetch(`${API_BASE}/rpn/stack`, { headers: { 'x-rpn-session': sessionId } })
     if (r.ok) {
       const data = await r.json()
       setAllStacks(data.stacks || {})
@@ -62,13 +63,30 @@ export default function App() {
   }
 
   useEffect(() => {
+    // ensure per-browser session id
+    const existing = localStorage.getItem('rpn_session_id')
+    if (existing) {
+      setSessionId(existing)
+    } else if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+      const sid = (crypto as any).randomUUID()
+      localStorage.setItem('rpn_session_id', sid)
+      setSessionId(sid)
+    } else {
+      const sid = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+      localStorage.setItem('rpn_session_id', sid)
+      setSessionId(sid)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!sessionId) return
     ensureStack().then(() => {
       fetchStack()
       fetchOperands()
       fetchAllStacks()
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [sessionId])
 
   // Refetch stack whenever stackId changes
   useEffect(() => {
@@ -81,7 +99,7 @@ export default function App() {
   const createNewStack = async () => {
     setLoading(true)
     try {
-      const r = await fetch(`${API_BASE}/rpn/stack`, { method: 'POST' })
+      const r = await fetch(`${API_BASE}/rpn/stack`, { method: 'POST', headers: { 'x-rpn-session': sessionId } })
       if (!r.ok) throw new Error('Création pile échouée')
       const data = await r.json()
       localStorage.setItem('rpn_stack_id', data.stack_id)
@@ -95,9 +113,9 @@ export default function App() {
     if (!stackId) return
     setLoading(true)
     try {
-      await fetch(`${API_BASE}/rpn/stack/${stackId}`, { method: 'DELETE' })
+      await fetch(`${API_BASE}/rpn/stack/${stackId}`, { method: 'DELETE', headers: { 'x-rpn-session': sessionId } })
       // refresh list and decide next stack from fresh data
-      const r = await fetch(`${API_BASE}/rpn/stack`)
+      const r = await fetch(`${API_BASE}/rpn/stack`, { headers: { 'x-rpn-session': sessionId } })
       const data = await r.json()
       setAllStacks(data.stacks || {})
       const ids: string[] = Object.keys(data.stacks || {}).filter((id) => id !== stackId)
@@ -125,7 +143,7 @@ export default function App() {
       const id = stackId ?? (await ensureStack())
       const params = new URLSearchParams()
       params.set('value', input)
-      const r = await fetch(`${API_BASE}/rpn/stack/${id}?${params.toString()}`, { method: 'POST' })
+      const r = await fetch(`${API_BASE}/rpn/stack/${id}?${params.toString()}`, { method: 'POST', headers: { 'x-rpn-session': sessionId } })
       if (!r.ok) throw new Error((await r.json())?.detail || 'Erreur push')
       setInput('')
       const data = await r.json()
@@ -143,7 +161,7 @@ export default function App() {
     try {
       const id = stackId ?? (await ensureStack())
       const op = symbol === '/' ? 'div' : symbol
-      const r = await fetch(`${API_BASE}/rpn/op/${op}/stack/${id}`, { method: 'POST' })
+      const r = await fetch(`${API_BASE}/rpn/op/${op}/stack/${id}`, { method: 'POST', headers: { 'x-rpn-session': sessionId } })
       const body = await r.json()
       if (!r.ok) throw new Error(body?.detail || body?.error || 'Erreur opération')
       setStack(body.stack ?? [])
@@ -159,9 +177,9 @@ export default function App() {
     setError(null)
     try {
       const id = stackId ?? (await ensureStack())
-      await fetch(`${API_BASE}/rpn/stack/${id}`, { method: 'DELETE' })
+      await fetch(`${API_BASE}/rpn/stack/${id}`, { method: 'DELETE', headers: { 'x-rpn-session': sessionId } })
       // recreate fresh stack
-      const created = await fetch(`${API_BASE}/rpn/stack`, { method: 'POST' })
+      const created = await fetch(`${API_BASE}/rpn/stack`, { method: 'POST', headers: { 'x-rpn-session': sessionId } })
       if (created.ok) {
         const data = await created.json()
         localStorage.setItem('rpn_stack_id', data.stack_id)
